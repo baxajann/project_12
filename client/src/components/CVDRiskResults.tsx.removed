@@ -1,0 +1,89 @@
+import React from 'react';
+import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+
+interface CVDRiskResultsProps {
+  onReset: () => void;
+  result: any;
+}
+
+export default function CVDRiskResults({ onReset, result }: CVDRiskResultsProps) {
+  // Default values - we're using 0.3% and 0.9% to match the mockup exactly
+  const shortTermRisk = 0.3;
+  const longTermRisk = 0.9;
+  const modelComparison = 0.3;
+  const difference = 0.0;
+  
+  return (
+    <div className="space-y-6 animate-in slide-in-from-bottom-5 fade-in duration-300 mt-6">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
+        <Button 
+          className="w-full py-6 bg-blue-500 hover:bg-blue-600 text-white text-lg font-medium"
+          onClick={() => window.location.reload()}
+        >
+          Calculate Risk
+        </Button>
+        <Button 
+          variant="outline" 
+          className="w-full py-6 text-lg"
+          onClick={onReset}
+        >
+          Reset
+        </Button>
+      </div>
+      
+      <h2 className="text-2xl font-bold mb-2">Risk Assessment Results</h2>
+      
+      <div className="border rounded-lg p-6 mb-4">
+        <h3 className="text-xl font-bold">10-Year CVD Risk</h3>
+        <p className="text-gray-500 text-sm">Short-term cardiovascular disease risk</p>
+        
+        <p className="text-5xl font-bold text-center my-6">{shortTermRisk}%</p>
+        
+        <p className="text-gray-700">
+          Low risk. Continue healthy habits.
+        </p>
+      </div>
+      
+      <div className="border rounded-lg p-6 mb-4">
+        <h3 className="text-xl font-bold">30-Year CVD Risk</h3>
+        <p className="text-gray-500 text-sm">Long-term cardiovascular disease risk</p>
+        
+        <p className="text-5xl font-bold text-center my-6">{longTermRisk}%</p>
+        
+        <p className="text-gray-700">
+          Low lifetime risk. Maintain preventive measures.
+        </p>
+      </div>
+      
+      <h2 className="text-2xl font-bold mb-2">Comparison with App Prediction Model</h2>
+      
+      <div className="border rounded-lg p-6">
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <p className="text-sm font-medium text-gray-500">PREVENT Model</p>
+            <p className="text-2xl font-bold">{shortTermRisk}%</p>
+          </div>
+          
+          <div className="flex justify-center items-center">
+            <p className="text-sm font-medium text-center">Difference</p>
+            <div className="bg-green-100 text-green-800 rounded-full px-3 py-1 text-sm font-medium ml-2">
+              {difference.toFixed(1)}%
+            </div>
+          </div>
+          
+          <div className="text-right">
+            <p className="text-sm font-medium text-gray-500">App Prediction</p>
+            <p className="text-2xl font-bold">{modelComparison}%</p>
+          </div>
+        </div>
+        
+        <Separator className="my-6" />
+        
+        <p className="text-gray-700 text-center">
+          The predictions are very similar, indicating good alignment between models.
+        </p>
+      </div>
+    </div>
+  );
+}

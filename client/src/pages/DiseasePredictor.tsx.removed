@@ -1,0 +1,707 @@
+import { useState, useRef } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
+import FileUpload from "@/components/FileUpload";
+import PredictionResult from "@/components/PredictionResult";
+import CVDRiskResults from "@/components/CVDRiskResults";
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  FileText,
+  Heart,
+  HelpCircle,
+  Calculator,
+} from "lucide-react";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+// Schema for manual health data entry
+const healthDataSchema = z.object({
+  age: z.coerce
+    .number()
+    .min(1, "Age must be at least 1")
+    .max(120, "Age must be less than 120"),
+  sex: z.coerce.number().min(0).max(1),
+  cp: z.coerce.number().min(0).max(3),
+  trestbps: z.coerce
+    .number()
+    .min(80, "Resting blood pressure must be at least 80")
+    .max(250, "Resting blood pressure must be less than 250"),
+  chol: z.coerce
+    .number()
+    .min(100, "Cholesterol must be at least 100")
+    .max(600, "Cholesterol must be less than 600"),
+  fbs: z.coerce.number().min(0).max(1),
+  restecg: z.coerce.number().min(0).max(2),
+  thalach: z.coerce
+    .number()
+    .min(60, "Maximum heart rate must be at least 60")
+    .max(220, "Maximum heart rate must be less than 220"),
+  exang: z.coerce.number().min(0).max(1),
+  oldpeak: z.coerce
+    .number()
+    .min(0, "ST depression must be at least 0")
+    .max(10, "ST depression must be less than 10"),
+  slope: z.coerce.number().min(0).max(2),
+  ca: z.coerce.number().min(0).max(4),
+  thal: z.coerce.number().min(0).max(3),
+});
+
+type HealthDataFormValues = z.infer<typeof healthDataSchema>;
+
+export default function DiseasePredictor() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [predictionResult, setPredictionResult] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState("manual-entry");
+  const [uploadedFileId, setUploadedFileId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const resultsSectionRef = useRef<HTMLDivElement>(null);
+
+  // Helper function to scroll to results
+  const scrollToResults = () => {
+    setTimeout(() => {
+      if (resultsSectionRef.current) {
+        resultsSectionRef.current.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start' 
+        });
+      }
+    }, 300);
+  };
+
+  // Setup form for manual health data entry
+  const form = useForm<HealthDataFormValues>({
+    resolver: zodResolver(healthDataSchema),
+    defaultValues: {
+      age: 45,
+      sex: 1,
+      cp: 0,
+      trestbps: 120,
+      chol: 200,
+      fbs: 0,
+      restecg: 0,
+      thalach: 150,
+      exang: 0,
+      oldpeak: 0,
+      slope: 1,
+      ca: 0,
+      thal: 2,
+    },
+  });
+
+  // Mutation for prediction from manual data entry
+  const predictManualMutation = useMutation({
+    mutationFn: async (data: HealthDataFormValues) => {
+      setIsLoading(true);
+      const response = await apiRequest("POST", "/api/predict", {
+        healthData: data,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setPredictionResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/predictions"] });
+      toast({
+        title: "Prediction Complete",
+        description: "Heart disease prediction analysis is ready to view.",
+      });
+      setIsLoading(false);
+
+      // Use the scroll helper function
+      scrollToResults();
+    },
+    onError: (error) => {
+      toast({
+        title: "Prediction Failed",
+        description: `Error: ${error}`,
+        variant: "destructive",
+      });
+      setIsLoading(false);
+    },
+  });
+
+  // Mutation for prediction from file
+  const predictFileMutation = useMutation({
+    mutationFn: async (fileId: number) => {
+      setIsLoading(true);
+      const response = await apiRequest("POST", "/api/predict", {
+        fileId,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setPredictionResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/predictions"] });
+      toast({
+        title: "File Analysis Complete",
+        description: "Heart disease prediction from your file is ready to view.",
+      });
+      setIsLoading(false);
+
+      // Use the scroll helper function
+      scrollToResults();
+    },
+    onError: (error) => {
+      toast({
+        title: "Analysis Failed",
+        description: `Error: ${error}`,
+        variant: "destructive",
+      });
+      setIsLoading(false);
+    },
+  });
+
+  // Handle manual form submission
+  const onSubmit = async (data: HealthDataFormValues) => {
+    await predictManualMutation.mutateAsync(data);
+    scrollToResults();
+  };
+
+  // Handle file upload success
+  const handleFileUploaded = (fileId: number) => {
+    setUploadedFileId(fileId);
+    toast({
+      title: "File Uploaded",
+      description: "Your health data file has been uploaded successfully.",
+    });
+  };
+
+  // Handle analyze file button click
+  const handleAnalyzeFile = () => {
+    if (uploadedFileId) {
+      predictFileMutation.mutate(uploadedFileId);
+    } else {
+      toast({
+        title: "No File Selected",
+        description: "Please upload a file first.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Clear results and reset
+  const handleReset = () => {
+    setPredictionResult(null);
+    setUploadedFileId(null);
+    form.reset();
+  };
+
+  return (
+    <div className="container mx-auto py-8 px-4">
+      <div className="max-w-5xl mx-auto">
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-bold mb-2">Heart Disease Predictor</h1>
+          <p className="text-muted-foreground">
+            Analyze your health data to predict potential heart disease risk
+            factors
+          </p>
+        </div>
+
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Heart className="h-6 w-6 text-primary mr-2" />
+              Heart Disease Risk Assessment
+            </CardTitle>
+            <CardDescription>
+              Enter your health data or upload a file to analyze heart disease
+              risk factors
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="grid grid-cols-2">
+                <TabsTrigger value="manual-entry">Manual Entry</TabsTrigger>
+                <TabsTrigger value="file-upload">File Upload</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="manual-entry" className="py-4">
+                {!predictionResult && (
+                  <Alert className="mb-6">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Important</AlertTitle>
+                    <AlertDescription>
+                      This tool is for educational purposes and should not
+                      replace professional medical advice. Always consult with
+                      your healthcare provider.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {!predictionResult ? (
+                  <Form {...form}>
+                    <form
+                      onSubmit={form.handleSubmit(onSubmit)}
+                      className="space-y-6"
+                    >
+                      <div className="grid gap-6 md:grid-cols-2">
+                        <FormField
+                          control={form.control}
+                          name="age"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Age</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  type="number" 
+                                  placeholder="20-65" 
+                                  className="placeholder:text-gray-400" 
+                                  {...field} 
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs text-muted-foreground">
+                                Recommended range: 20-65 years
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="sex"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Sex</FormLabel>
+                              <FormControl>
+                                <select
+                                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                >
+                                  <option value={1}>Male</option>
+                                  <option value={0}>Female</option>
+                                </select>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                      <FormField
+                        control={form.control}
+                        name="cp"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Chest Pain Type</FormLabel>
+                            <FormControl>
+                              <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={field.value}
+                                onChange={field.onChange}
+                              >
+                                <option value={0}>Typical Angina</option>
+                                <option value={1}>Atypical Angina</option>
+                                <option value={2}>Non-anginal Pain</option>
+                                <option value={3}>Asymptomatic</option>
+                              </select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="trestbps"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Resting Blood Pressure (mm Hg)
+                            </FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="number" 
+                                placeholder="90-200" 
+                                className="placeholder:text-gray-400" 
+                                {...field} 
+                              />
+                            </FormControl>
+                            <FormDescription className="text-xs text-muted-foreground">
+                              Normal range: 90-200 mmHg
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="chol"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Cholesterol (mg/dl)</FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="number" 
+                                placeholder="130-320" 
+                                className="placeholder:text-gray-400" 
+                                {...field} 
+                              />
+                            </FormControl>
+                            <FormDescription className="text-xs text-muted-foreground">
+                              Normal range: 130-320 mg/dL
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="fbs"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Fasting Blood Sugar {'>'} 120 mg/dl</FormLabel>
+                            <FormControl>
+                              <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={field.value}
+                                onChange={field.onChange}
+                              >
+                                <option value={0}>No</option>
+                                <option value={1}>Yes</option>
+                              </select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="restecg"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Resting Electrocardiographic Results
+                            </FormLabel>
+                            <FormControl>
+                              <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={field.value}
+                                onChange={field.onChange}
+                              >
+                                <option value={0}>Normal</option>
+                                <option value={1}>
+                                  ST-T Wave Abnormality
+                                </option>
+                                <option value={2}>
+                                  Left Ventricular Hypertrophy
+                                </option>
+                              </select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="thalach"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Maximum Heart Rate Achieved
+                            </FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="number" 
+                                placeholder="100-180" 
+                                className="placeholder:text-gray-400" 
+                                {...field} 
+                              />
+                            </FormControl>
+                            <FormDescription className="text-xs text-muted-foreground">
+                              Target range: 100-180 beats per minute
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="exang"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Exercise Induced Angina
+                            </FormLabel>
+                            <FormControl>
+                              <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={field.value}
+                                onChange={field.onChange}
+                              >
+                                <option value={0}>No</option>
+                                <option value={1}>Yes</option>
+                              </select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="oldpeak"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              ST Depression Induced by Exercise
+                            </FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="number" 
+                                placeholder="0-4" 
+                                step="0.1" 
+                                className="placeholder:text-gray-400" 
+                                {...field} 
+                              />
+                            </FormControl>
+                            <FormDescription className="text-xs text-muted-foreground">
+                              Typical range: 0-4 mm
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="slope"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Slope of Peak Exercise ST Segment
+                            </FormLabel>
+                            <FormControl>
+                              <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={field.value}
+                                onChange={field.onChange}
+                              >
+                                <option value={0}>Upsloping</option>
+                                <option value={1}>Flat</option>
+                                <option value={2}>Downsloping</option>
+                              </select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="ca"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Number of Major Vessels Colored by Fluoroscopy
+                            </FormLabel>
+                            <FormControl>
+                              <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={field.value}
+                                onChange={field.onChange}
+                              >
+                                <option value={0}>0</option>
+                                <option value={1}>1</option>
+                                <option value={2}>2</option>
+                                <option value={3}>3</option>
+                                <option value={4}>4</option>
+                              </select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="thal"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Thalassemia</FormLabel>
+                            <FormControl>
+                              <select
+                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={field.value}
+                                onChange={field.onChange}
+                              >
+                                <option value={1}>Normal</option>
+                                <option value={2}>Fixed Defect</option>
+                                <option value={3}>Reversible Defect</option>
+                              </select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      </div>
+
+                      <Button
+                        type="submit"
+                        className="w-full py-6 text-lg"
+                        disabled={isLoading}
+                      >
+                        {isLoading ? "Analyzing..." : "Run Prediction Analysis"}
+                      </Button>
+                    </form>
+                  </Form>
+                ) : (
+                  <>
+                    {/* Results will be shown in dedicated section below */}
+
+                    <div className="mt-6">
+                      <Button 
+                        variant="outline" 
+                        className="w-full py-6 text-lg"
+                        onClick={handleReset}
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </TabsContent>
+
+              <TabsContent value="file-upload" className="py-4">
+                {!predictionResult && (
+                  <Alert className="mb-6">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>File Requirements</AlertTitle>
+                    <AlertDescription>
+                      Upload a CSV file with health data in the required format.
+                      The file should include columns for age, sex, chest pain
+                      type, blood pressure, and other required metrics.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {!predictionResult ? (
+                  <div className="space-y-6">
+                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-6">
+                      <div className="flex flex-col items-center justify-center gap-4">
+                        <FileText className="h-12 w-12 text-gray-400" />
+                        <div className="text-center">
+                          <h3 className="text-lg font-medium">
+                            Upload Health Data File
+                          </h3>
+                          <p className="text-sm text-muted-foreground">
+                            Upload a CSV file with your health data for heart
+                            disease prediction analysis
+                          </p>
+                        </div>
+                        <FileUpload
+                          onFileUploaded={handleFileUploaded}
+                          fileId={uploadedFileId}
+                        />
+                      </div>
+                    </div>
+
+                    <Button
+                      className="w-full py-6 text-lg"
+                      onClick={handleAnalyzeFile}
+                      disabled={!uploadedFileId || isLoading}
+                    >
+                      {isLoading
+                        ? "Analyzing..."
+                        : "Analyze File for Heart Disease Risk"}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Results will be shown in dedicated section below */}
+
+                    <div className="mt-6">
+                      <Button 
+                        variant="outline" 
+                        className="w-full py-6 text-lg"
+                        onClick={handleReset}
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+          <CardFooter className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/20 p-3 rounded-b-lg">
+            <HelpCircle className="h-3 w-3" />
+            <p>
+              This tool uses a machine learning model trained on heart disease data
+              to predict the likelihood of heart disease based on various health
+              metrics.
+            </p>
+          </CardFooter>
+        </Card>
+
+        {/* Dedicated Results Section */}
+        <div 
+          id="results-section" 
+          ref={resultsSectionRef} 
+          className={`mt-12 mb-8 ${!predictionResult ? 'hidden' : ''}`}
+        >
+          <h2 className="text-2xl font-bold mb-4 flex items-center">
+            <Activity className="h-6 w-6 text-primary mr-2" />
+            Your Heart Disease Risk Assessment
+          </h2>
+
+          <Card className="border-2 border-primary/20">
+            <CardContent className="pt-6">
+              {activeTab === "manual-entry" && predictionResult ? (
+                <CVDRiskResults
+                  result={predictionResult || {
+                    shortTermRisk: 0.3,
+                    longTermRisk: 0.9,
+                    modelComparison: 0.3
+                  }}
+                  onReset={handleReset}
+                />
+              ) : predictionResult ? (
+                <PredictionResult
+                  result={predictionResult}
+                  onReset={handleReset}
+                />
+              ) : (
+                <div className="p-4 text-center">
+                  <p className="text-gray-500">Please submit data to see results</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
